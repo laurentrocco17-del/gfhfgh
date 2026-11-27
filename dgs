@@ -1,0 +1,130 @@
+do
+    local Players = PC.Players
+    local LP = PC.LP
+    local RS = PC.RS
+    local UIS = PC.UIS
+    local cfg = PC.cfg
+    local T = PC.T
+    local toast = PC.toast
+
+    cfg.silentAim = cfg.silentAim or false
+    cfg.silentFov = cfg.silentFov or 120
+    cfg.silentTeamCheck = cfg.silentTeamCheck ~= false
+    cfg.silentKey = cfg.silentKey or Enum.KeyCode.C
+
+    local silentTarget = nil
+    local cam = workspace.CurrentCamera
+
+    PC.mkHeader(PC.pgAim, 160, "SILENT AIM")
+    PC.btnSilent = PC.mkBtn(PC.pgAim, 188, 1, 0, "SILENT AIM: OFF", false)
+    PC.btnSilentKey = PC.mkBtn(PC.pgAim, 218, 1, 0, "KEY: " .. cfg.silentKey.Name:sub(1, 3), false)
+    PC.btnSilentTeam = PC.mkBtn(PC.pgAim, 248, 1, 0, "TEAM CHECK: " .. (cfg.silentTeamCheck and "ON" or "OFF"), cfg.silentTeamCheck)
+
+    PC.mkSlider(PC.pgAim, 282, "SILENT FOV", "pixel radius around crosshair", 0.24,
+        function(pos)
+            local v = math.floor(20 + pos * 480 + 0.5)
+            cfg.silentFov = v
+            return tostring(v)
+        end,
+        function(pos) end
+    )
+
+    local function pickSilentTarget()
+        local cx, cy = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5
+        local best, bestScore = nil, math.huge
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP then
+                if not (cfg.silentTeamCheck and p.Team == LP.Team) then
+                    local c = p.Character
+                    local hum = c and c:FindFirstChildOfClass("Humanoid")
+                    local head = c and c:FindFirstChild("Head")
+                    if hum and hum.Health > 0 and head then
+                        local sp, onScreen = cam:WorldToViewportPoint(head.Position)
+                        if onScreen and sp.Z > 0 then
+                            local dx = sp.X - cx
+                            local dy = sp.Y - cy
+                            local dist = math.sqrt(dx * dx + dy * dy)
+                            if dist <= cfg.silentFov and dist < bestScore then
+                                bestScore = dist
+                                best = head
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    RS.RenderStepped:Connect(function()
+        if not cfg.silentAim then
+            silentTarget = nil
+            return
+        end
+        silentTarget = pickSilentTarget()
+    end)
+
+    if hookmetamethod and getnamecallmethod and newcclosure then
+        local old
+        old = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if cfg.silentAim and silentTarget and self == cam then
+                if method == "ViewportPointToRay" then
+                    local origin = cam.CFrame.Position
+                    local dir = (silentTarget.Position - origin).Unit
+                    return Ray.new(origin, dir * 1000)
+                elseif method == "ScreenPointToRay" then
+                    local origin = cam.CFrame.Position
+                    local dir = (silentTarget.Position - origin).Unit
+                    return Ray.new(origin, dir * 1000)
+                elseif method == "WorldToScreenPoint" then
+                    local head = silentTarget
+                    local args = { ... }
+                    for i, v in ipairs(args) do
+                        if typeof(v) == "Vector3" and (v - head.Position).Magnitude < 5 then
+                            args[i] = head.Position
+                        end
+                    end
+                    return old(self, table.unpack(args))
+                end
+            end
+            return old(self, ...)
+        end))
+    end
+
+    PC.btnSilent.MouseButton1Click:Connect(function()
+        cfg.silentAim = not cfg.silentAim
+        PC.btnSilent.Text = "SILENT AIM: " .. (cfg.silentAim and "ON" or "OFF")
+        PC.btnSilent.BackgroundColor3 = cfg.silentAim and T.accent or T.panel2
+        PC.btnSilent.TextColor3 = cfg.silentAim and T.bg or T.text
+        toast("Silent aim " .. (cfg.silentAim and "ON" or "OFF"), cfg.silentAim and T.ok or T.warn)
+    end)
+
+    PC.btnSilentKey.MouseButton1Click:Connect(function()
+        PC.awaitingBind = "silentKey"
+        PC.btnSilentKey.Text = "PRESS..."
+    end)
+
+    PC.btnSilentTeam.MouseButton1Click:Connect(function()
+        cfg.silentTeamCheck = not cfg.silentTeamCheck
+        PC.btnSilentTeam.Text = "TEAM CHECK: " .. (cfg.silentTeamCheck and "ON" or "OFF")
+        PC.btnSilentTeam.BackgroundColor3 = cfg.silentTeamCheck and T.accent or T.panel2
+        PC.btnSilentTeam.TextColor3 = cfg.silentTeamCheck and T.bg or T.text
+    end)
+
+    UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if PC.awaitingBind == "silentKey" then
+            cfg.silentKey = input.KeyCode
+            PC.btnSilentKey.Text = "KEY: " .. input.KeyCode.Name:sub(1, 3)
+            PC.awaitingBind = nil
+            return
+        end
+        if input.KeyCode == cfg.silentKey then
+            cfg.silentAim = not cfg.silentAim
+            PC.btnSilent.Text = "SILENT AIM: " .. (cfg.silentAim and "ON" or "OFF")
+            PC.btnSilent.BackgroundColor3 = cfg.silentAim and T.accent or T.panel2
+            PC.btnSilent.TextColor3 = cfg.silentAim and T.bg or T.text
+        end
+    end)
+end
